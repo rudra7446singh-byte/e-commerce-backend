@@ -62,6 +62,10 @@ const userSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    fcmToken: {
+      type: [String],
+      default: [],
+    },
   },
   { timestamps: true ,
   toJSON: { virtuals: true },

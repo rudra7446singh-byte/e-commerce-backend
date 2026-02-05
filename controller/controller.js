@@ -4,9 +4,7 @@ import User from '../models/userModel.js'
 let tempUserStorage = {};
 
 function generateJwt(_id) {
-  return jwt.sign({ _id: _id }, process.env.JWT_TOKEN, {
-    expiresIn: "10d",
-  });
+  return jwt.sign({ _id: _id }, process.env.JWT_TOKEN, {});
 }
 
 // async function testAggregation() {
@@ -46,6 +44,7 @@ export const register = async (req, res) => {
       mobile,
       age,
       password,
+      role,
       otp,
     };
 
@@ -97,6 +96,7 @@ export const verifyOtp = async (req, res) => {
         mobile: tempUser.mobile,
         age: tempUser.age,
         password: tempUser.password,
+        role: tempUser.role || "user",
         isVerified: true,
       });
 

@@ -10,8 +10,7 @@ const productSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      unique: true,
-      // index: true,
+      index: true,
     },
     description: {
       type: String,
@@ -21,14 +20,13 @@ const productSchema = new mongoose.Schema(
     slug: { 
       type: String,
       required: true,
-      unique: true,
-      // index: true,
+      index: true,
     },
     price: {
       type: Number,
       required: true,
       min: 0,
-      // index: true,
+      index: true,
     },
     images: {
       type: [String],
@@ -59,11 +57,26 @@ const productSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        required: true,
+        default: "Point"
+      },
+      coordinates: {
+        type: [Number],
+        required: true,
+      }
+    }
   },
   {
     timestamps: true,
   }
 );
+
+productSchema.index({ location: "2dsphere" });
 
 
 const Product = mongoose.model("Product", productSchema);

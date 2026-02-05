@@ -8,6 +8,7 @@ const router = Router();
 
 router.post("/create", checkAuth, upload.array('images', 10), productController.createProduct);
 router.get("/data-user",checkAuth, productController.selfProductById);
+router.get("/productaaa", checkAuth, productController.productByLocation);
 router.get("/", checkAuth, productController.getAllProducts);
 router.get("/productlist/:query", checkAuth, productController.productByQuery);
 router.get("/:id", checkAuth, productController.getProductById);

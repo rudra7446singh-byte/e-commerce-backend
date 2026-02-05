@@ -9,7 +9,9 @@ import fs from "fs";
 import SubCategory from "../models/subCategoryModel.js";
 import slugify from "slugify";
 import mongoose from "mongoose";
-import { count } from "console";
+import { setCache, getCache } from "../config/inMemoryCache.js";
+// import { redisClient } from "../config/redis.js";
+import { emitWarning } from "process";
 
 // -------------------- CREATE PRODUCT --------------------
 export const createProduct = async (req, res) => {
@@ -17,9 +19,7 @@ export const createProduct = async (req, res) => {
     const user = req.user;
     const data = req.body;
 
-    // ---------------------------------------
     // 1. Validate category
-    // ---------------------------------------
     const category = await Category.findById(req.body.category);
     if (!category) {
       return res.status(400).json({
@@ -28,9 +28,7 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // ---------------------------------------
     // 2. Validate that subCategory belongs to that category
-    // ---------------------------------------
     const subCategory = await SubCategory.findById(req.body.subCategory);
     if (!subCategory) {
       return res.status(400).json({
@@ -39,7 +37,6 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // console.log("--------------------subCategory", checkSubCategory);
 
     if (subCategory.length === 0) {
       return res.status(400).json({
@@ -48,17 +45,24 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // ---------------------------------------
-    // 3. Handle Image Uploads correctly
-    // ---------------------------------------
-    const files = req.files || []; // upload.array() always fills this
+    // ------------- validate geo location -------------
+    const { longitude, latitude } = data;
+    if (!longitude || !latitude) {
+      return res.status(400).json({
+        status: false,
+        message: "Please provide latitude and longitude",
+      });
+    }
+    if (isNaN(longitude) || isNaN(latitude)) {
+      return res.status(400).json({
+        status: false,
+        message: "Invalid latitude or longitude",
+      });
+    }
 
-    // const imageArray = files.map((file) => ({
-    //   filename: file.originalname,
-    //   path: file.path,
-    //   mimetype: file.mimetype,
-    //   size: file.size,
-    // }));
+    // 3. Handle Image Uploads correctly
+    const files = req.files || []; 
+
     let media = [];
 
     for (const file of files) {
@@ -83,18 +87,23 @@ export const createProduct = async (req, res) => {
       subCategory: req.body.subCategory,
       images: media,
       owner: user._id,
+
+      location: {
+        type: "Point",
+        coordinates: [
+          Number(longitude), 
+          Number(latitude), 
+        ],
+      },
     });
 
-    // ---------------------------------------
     // 5. Admin auto-approval
-    // ---------------------------------------
     if (user.role === ROLE_STATUS.ROLE.ADMIN) {
       product.status = ROLE_STATUS.STATUS.ACCEPTED;
     }
 
-    // ---------------------------------------
+
     // 6. Save Product
-    // ---------------------------------------
     await product.save();
 
     return res.status(200).json({
@@ -118,7 +127,20 @@ export const getAllProducts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const cacheKey = `products: ${page}:${limit}`;
+
+    // const cachedData = await redisClient.get(cacheKey);
+    // if (cachedData) {
+    //   return res.status(200).json(JSON.parse(cachedData));
+    // }
+
+    const cacheData = getCache(cacheKey);
+    if (cacheData) {
+      return res.status(200).json(cacheData);
+    }
+
     const basePipeline = [
+      { $sort: { createdAt: -1 } },
       {
         $lookup: {
           from: "categories",
@@ -140,6 +162,18 @@ export const getAllProducts = async (req, res) => {
       { $unwind: { path: "$subCategories", preserveNullAndEmptyArrays: true } },
 
       {
+        $lookup: {
+          from: "users",
+          localField: "owner",
+          foreignField: "_id",
+          as: "productOwner",
+        },
+      },
+      {
+        $unwind: { path: "$productOwner", preserveNullAndEmptyArrays: true },
+      },
+
+      {
         $project: {
           _id: 1,
           title: 1,
@@ -158,6 +192,13 @@ export const getAllProducts = async (req, res) => {
             _id: "$subCategories._id",
             name: "$subCategories.name",
             slug: "$subCategories.slug",
+          },
+
+          owner: {
+            _id: "$productOwner._id",
+            firstName: "$productOwner.firstName",
+            lastName: "$productOwner.lastName",
+            email: "$productOwner.email",
           },
         },
       },
@@ -213,18 +254,32 @@ export const getAllProducts = async (req, res) => {
       },
     ]);
 
-    console.log("result-----", result)
+    // console.log("result-----", result);
     // const data = result[0] || { totalCount: 0, list: [] };
 
-
-    return res.status(200).json({
+    const response = {
       status: true,
       message: "Products fetched successfully.",
       page,
       limit,
       count: result[0].totalCount || 0,
-      data : result[0].list || [],
-    });
+      data: result[0].list || [],
+    };
+
+    // await redisClient.setEx(cacheKey, 120, JSON.stringify(response));
+
+    setCache(cacheKey, response, 120000);
+
+    return res.status(200).json(response);
+
+    // return res.status(200).json({
+    //   status: true,
+    //   message: "Products fetched successfully.",
+    //   page,
+    //   limit,
+    //   count: result[0].totalCount || 0,
+    //   data: result[0].list || [],
+    // });
   } catch (error) {
     return res.status(500).json({
       status: false,
@@ -385,7 +440,6 @@ export const deleteProduct = async (req, res) => {
 };
 
 // -----------------------UPLOAD PRODUCT IMAGE-----------------------
-
 export const uploadImage = async (req, res) => {
   if (!req.uploadedImages || req.uploadedImages.length === 0) {
     return res.send(
@@ -635,6 +689,48 @@ export const productByQuery = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: error.message || MESSAGES.PRODUCTS.CREATE_FAIL,
+    });
+  }
+};
+
+// ----------------------- PRODUCT LOCATION BASED SEARCH --------------------
+export const productByLocation = async (req, res) => {
+  try {
+    const { longitude, latitude, distance } = req.query;
+
+    // console.log(`-------------------->>`, req.query)
+    if (!longitude || !latitude) {
+      return res.status(400).json({
+        status: false,
+        message: "Please provide latitude and longitude",
+      });
+    }
+    const radius = Number(distance) * 1000;
+    // console.log(radius)
+
+    const products = await Product.aggregate([
+      {
+        $geoNear: {
+          near: {
+            type: "Point",
+            coordinates: [Number(longitude), Number(latitude)],
+          },
+          distanceField: "distance",
+          maxDistance: radius,
+          spherical: true,
+        },
+      },
+    ]);
+    return res.status(200).json({
+      success: true,
+      message: "Products fetched successfully based on location",
+      count: products.length,
+      data: products,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: error.message,
     });
   }
 };
