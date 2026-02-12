@@ -120,7 +120,6 @@ export const verifyOtp = async (req, res) => {
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
-
   if (!email || !password) {
     return res.status(400).json({
       success: false,
@@ -157,7 +156,7 @@ export const login = async (req, res) => {
 };
 
 
-
+// get profile by login token
 export const profile = async (req, res) => {
   try {
     const user = await User.findById(req._id).select("-password");
@@ -182,3 +181,37 @@ export const profile = async (req, res) => {
   }
 };
 
+
+// update profile
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const update = req.body
+
+    const updateUser = await User.findOneAndUpdate(
+      {_id: userId},
+      { $set: update },
+      { new: true, runValidators: true },
+    );
+      // console.log('updateUser: ', updateUser);
+
+    if(!updateUser) {
+      return res.status(400).json({
+        success: false,
+        message: "user not found"
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile Updated successfully",
+      data: updateUser,
+    })
+
+  }catch(error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    })
+  }
+};

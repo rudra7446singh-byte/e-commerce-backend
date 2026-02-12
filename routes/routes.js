@@ -1,5 +1,5 @@
 import express from "express"
-import { register, verifyOtp, login, profile } from "../controller/controller.js"
+import { authController } from "../controller/index.js";
 import { checkAuth } from "../middleware/verifyToken.js";
 import categoryRoute from "./categoryRoutes.js";
 import productRoutes from "./productRoutes.js";
@@ -13,10 +13,11 @@ import planRouter from "./planRoutes.js"
 const router = express.Router();
 
 
-router.post("/", register);
-router.post("/otp", verifyOtp);
-router.post("/login", login);
-router.get("/profile", checkAuth, profile)
+router.post("/", authController.register);
+router.post("/otp", authController.verifyOtp);
+router.post("/login", authController.login);
+router.get("/profile", checkAuth, authController.profile)
+router.put("/update",checkAuth, authController.updateProfile)
 router.use("/category", categoryRoute);
 router.use("/subcategory", subCategoryRoutes)
 router.use("/product", productRoutes);
